@@ -1,10 +1,13 @@
 /**
- * SERVICE WORKER - Integrates with Flask Backend
+ * SERVICE WORKER - Works WITH or WITHOUT Backend
+ * Set USE_MOCK_DATA = true to test without backend
  */
 
-const BACKEND_URL = 'http://localhost:5000'; // Flask backend
+const BACKEND_URL = 'http://localhost:5000';
+const USE_MOCK_DATA = true; // ← Set to false when backend is ready
 
 console.log('PrivaSee Service Worker: initialized');
+console.log(`Mode: ${USE_MOCK_DATA ? 'MOCK DATA (no backend needed)' : 'BACKEND API'}`);
 
 // ============================================
 // MESSAGE LISTENER
@@ -53,10 +56,17 @@ async function handleAnalysisRequest(message) {
   console.log(`Analyzing ${text.length} characters from ${url}...`);
   
   try {
-    // Call Flask backend
-    const result = await analyzeWithBackend(text, url);
+    let result;
     
-    // Transform backend response to frontend format
+    if (USE_MOCK_DATA) {
+      // Use mock data for testing without backend
+      result = await getMockAnalysis(text, url);
+    } else {
+      // Call real backend
+      result = await analyzeWithBackend(text, url);
+    }
+    
+    // Transform to frontend format
     const transformed = transformBackendResponse(result);
     
     // Cache the result
@@ -71,7 +81,129 @@ async function handleAnalysisRequest(message) {
 }
 
 // ============================================
-// BACKEND API COMMUNICATION
+// MOCK DATA (For testing without backend)
+// ============================================
+
+async function getMockAnalysis(text, url) {
+  console.log('Using MOCK data (backend not needed)');
+  
+  // Simulate API delay
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  
+  // Analyze text to make it more realistic
+  const textLower = text.toLowerCase();
+  const hasSharing = textLower.includes('share') || textLower.includes('third party');
+  const hasSell = textLower.includes('sell') || textLower.includes('sale');
+  const hasEncryption = textLower.includes('encrypt') || textLower.includes('secure');
+  const hasRights = textLower.includes('access') || textLower.includes('delete');
+  
+  // Generate semi-realistic scores
+  return {
+    trust_score: hasSharing || hasSell ? 35 : 65,
+    risk_level: hasSharing || hasSell ? "High" : "Medium",
+    categories: {
+      "Data Collection": {
+        score: 0.60,
+        reason: "Policy describes what data is collected, but lacks specifics on sensitive data limits.",
+        heuristics: { delta: 0.0, flags: ["collects personal information"] },
+        spacy_prob: 0.65
+      },
+      "Third-Party Sharing/Selling": {
+        score: hasSell ? 0.20 : 0.35,
+        reason: hasSell ? "May sell data to third parties without clear opt-out." : hasSharing ? "Shares with third parties for marketing." : "Limited third-party sharing mentioned.",
+        heuristics: { delta: hasSell ? -0.35 : -0.15, flags: hasSell ? ["may sell data"] : hasSharing ? ["shares with third parties"] : [] },
+        spacy_prob: 0.40
+      },
+      "Purpose Limitation": {
+        score: 0.55,
+        reason: "States general purposes but includes vague 'compatible purposes' language.",
+        heuristics: { delta: -0.10, flags: ["compatible purposes clause"] },
+        spacy_prob: 0.50
+      },
+      "User Control & Rights": {
+        score: hasRights ? 0.75 : 0.50,
+        reason: hasRights ? "Provides access and deletion rights; CCPA compliant." : "Limited user control options mentioned.",
+        heuristics: { delta: hasRights ? 0.20 : 0.0, flags: hasRights ? ["provides access/deletion rights"] : [] },
+        spacy_prob: 0.70
+      },
+      "Retention & Deletion": {
+        score: 0.35,
+        reason: "No specific retention period; retains data 'as long as necessary'.",
+        heuristics: { delta: -0.30, flags: ["indefinite retention"] },
+        spacy_prob: 0.30
+      },
+      "Security Practices": {
+        score: hasEncryption ? 0.80 : 0.60,
+        reason: hasEncryption ? "Mentions encryption and secure transmission." : "Some security measures mentioned.",
+        heuristics: { delta: hasEncryption ? 0.25 : 0.10, flags: hasEncryption ? ["encryption mentioned", "secure transmission"] : [] },
+        spacy_prob: 0.75
+      },
+      "International Transfers & Jurisdiction": {
+        score: 0.50,
+        reason: "Mentions international data transfers but lacks specific safeguards.",
+        heuristics: { delta: 0.0, flags: [] },
+        spacy_prob: 0.45
+      },
+      "Children/Minors + Sensitive Data": {
+        score: 0.80,
+        reason: "COPPA compliant; does not knowingly collect from children under 13.",
+        heuristics: { delta: 0.15, flags: ["COPPA compliant"] },
+        spacy_prob: 0.85
+      }
+    },
+    evidence: {
+      "Data Collection": [
+        {
+          text: "We collect information you provide directly, such as your name, email address, and payment information.",
+          start: 100,
+          end: 200,
+          score: 0.75,
+          matched: ["collect", "information", "email", "payment"]
+        }
+      ],
+      "Third-Party Sharing/Selling": hasSharing || hasSell ? [
+        {
+          text: hasSell ? "We may sell your personal data to third-party advertisers." : "We share your information with our partners for marketing purposes.",
+          start: 500,
+          end: 600,
+          score: 0.85,
+          matched: hasSell ? ["sell", "personal data", "third-party"] : ["share", "partners", "marketing"]
+        }
+      ] : [],
+      "User Control & Rights": hasRights ? [
+        {
+          text: "You can request access to or deletion of your personal data by contacting us.",
+          start: 1000,
+          end: 1100,
+          score: 0.80,
+          matched: ["access", "deletion", "personal data"]
+        }
+      ] : [],
+      "Security Practices": hasEncryption ? [
+        {
+          text: "We use industry-standard encryption to protect your data during transmission and storage.",
+          start: 1500,
+          end: 1600,
+          score: 0.90,
+          matched: ["encryption", "protect", "data"]
+        }
+      ] : []
+    },
+    weights: {
+      "Data Collection": 0.15,
+      "Third-Party Sharing/Selling": 0.20,
+      "Purpose Limitation": 0.10,
+      "User Control & Rights": 0.15,
+      "Retention & Deletion": 0.10,
+      "Security Practices": 0.10,
+      "International Transfers & Jurisdiction": 0.10,
+      "Children/Minors + Sensitive Data": 0.10
+    }
+  };
+}
+
+// ============================================
+// BACKEND API COMMUNICATION (For when backend is ready)
 // ============================================
 
 async function analyzeWithBackend(text, url) {
@@ -110,48 +242,6 @@ async function analyzeWithBackend(text, url) {
 // ============================================
 
 function transformBackendResponse(backendResult) {
-  /**
-   * Backend returns:
-   * {
-   *   trust_score: 68.4,
-   *   risk_level: "Medium",
-   *   categories: {
-   *     "Third-Party Sharing/Selling": {
-   *       score: 0.32,
-   *       reason: "...",
-   *       heuristics: {...},
-   *       spacy_prob: 0.41
-   *     },
-   *     ...
-   *   },
-   *   evidence: {
-   *     "Third-Party Sharing/Selling": [
-   *       {text: "...", start: 1234, end: 1298, score: 0.82, matched: ["..."]}
-   *     ],
-   *     ...
-   *   },
-   *   weights: {...}
-   * }
-   * 
-   * Frontend expects:
-   * {
-   *   trustScore: 68.4,
-   *   riskLevel: "medium",
-   *   categories: [
-   *     {
-   *       name: "Third-Party Sharing/Selling",
-   *       score: 32,  // 0-100 scale
-   *       weight: 0.20,
-   *       reasons: ["..."],
-   *       evidence: [{text: "...", keywords: [...], highlighted: "..."}]
-   *     },
-   *     ...
-   *   ],
-   *   timestamp: Date.now(),
-   *   analyzedTextLength: 1234
-   * }
-   */
-  
   const categories = [];
   const categoryNames = [
     'Data Collection',
@@ -201,7 +291,7 @@ function transformBackendResponse(backendResult) {
     riskLevel: (backendResult.risk_level || 'medium').toLowerCase(),
     categories: categories,
     timestamp: Date.now(),
-    analyzedTextLength: 0 // Backend doesn't return this, but we could calculate it
+    analyzedTextLength: 0
   };
 }
 
@@ -214,7 +304,6 @@ function highlightKeywords(text, keywords) {
   
   let highlighted = text;
   keywords.forEach(keyword => {
-    // Case-insensitive replacement with <mark> tags
     const regex = new RegExp(`(${escapeRegex(keyword)})`, 'gi');
     highlighted = highlighted.replace(regex, '<mark>$1</mark>');
   });
@@ -272,6 +361,11 @@ async function clearCache() {
 // ============================================
 
 async function checkBackendHealth() {
+  if (USE_MOCK_DATA) {
+    console.log('Using mock data - backend health check skipped');
+    return true;
+  }
+  
   try {
     const response = await fetch(`${BACKEND_URL}/health`, {
       method: 'GET',
@@ -288,16 +382,13 @@ async function checkBackendHealth() {
     }
   } catch (error) {
     console.error('Cannot connect to backend:', error.message);
-    console.warn('⚠️ Make sure Flask server is running: python run.py');
+    console.warn('⚠️ Set USE_MOCK_DATA = true to test without backend');
     return false;
   }
 }
 
 // Check backend on startup
 checkBackendHealth();
-
-// Periodic health check (every 5 minutes)
-setInterval(checkBackendHealth, 5 * 60 * 1000);
 
 // ============================================
 // INSTALL/UPDATE HANDLERS
@@ -312,5 +403,5 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 });
 
-console.log('Service worker ready! Backend: ' + BACKEND_URL);
-
+console.log('Service worker ready!');
+console.log(`Backend: ${BACKEND_URL} | Mock Mode: ${USE_MOCK_DATA}`);
