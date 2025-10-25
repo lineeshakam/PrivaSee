@@ -9,11 +9,12 @@ CATEGORY_WEIGHTS = {
     "Children/Minors + Sensitive Data": 0.10
 }
 
+
 # Gemini API setup
-GEMINI_API_KEY = "paste api key here"
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_API_KEY = "hi"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 API_VERSION = "v1"
 DEBUG = True
 HOST = "0.0.0.0"
-PORT = 5000
+PORT = 5001
