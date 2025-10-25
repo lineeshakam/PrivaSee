@@ -1,12 +1,10 @@
 /**
- * SERVICE WORKER - Person A
- * Handles background logic and API communication
+ * SERVICE WORKER - Integrates with Flask Backend
  */
 
-console.log('Privacy Policy Analyzer: Service worker initialized');
+const BACKEND_URL = 'http://localhost:5000'; // Flask backend
 
-// Backend API configuration
-const BACKEND_URL = 'http://localhost:5000'; // Update this to your backend URL
+console.log('PrivaSee Service Worker: initialized');
 
 // ============================================
 // MESSAGE LISTENER
@@ -15,8 +13,8 @@ const BACKEND_URL = 'http://localhost:5000'; // Update this to your backend URL
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('Service worker received message:', message.type);
   
-  if (message.type === 'analyze_selection' || message.type === 'analyze_page') {
-    handleAnalysisRequest(message, sender)
+  if (message.type === 'ANALYZE_TEXT') {
+    handleAnalysisRequest(message)
       .then(result => {
         sendResponse({ success: true, data: result });
       })
@@ -28,10 +26,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
   
-  if (message.type === 'get_cached_analysis') {
+  if (message.type === 'GET_CACHED') {
     getCachedAnalysis()
-      .then(result => sendResponse({ success: true, data: result }))
-      .catch(error => sendResponse({ success: false, error: error.message }));
+      .then(result => sendResponse({ data: result }))
+      .catch(error => sendResponse({ data: null }));
+    
+    return true;
+  }
+  
+  if (message.type === 'CLEAR_CACHE') {
+    clearCache()
+      .then(() => sendResponse({ success: true }))
+      .catch(error => sendResponse({ success: false }));
     
     return true;
   }
@@ -41,40 +47,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // ANALYSIS REQUEST HANDLER
 // ============================================
 
-async function handleAnalysisRequest(message, sender) {
-  const { text, url, type } = message;
-  const isWholePage = type === 'analyze_page';
+async function handleAnalysisRequest(message) {
+  const { text, url } = message;
   
-  console.log(`Analyzing ${isWholePage ? 'whole page' : 'selection'}: ${text.length} characters`);
+  console.log(`Analyzing ${text.length} characters from ${url}...`);
   
   try {
-    // Optional: Redact sensitive info (emails, phones) before sending
-    const sanitizedText = redactSensitiveInfo(text);
+    // Call Flask backend
+    const result = await analyzeWithBackend(text, url);
     
-    // Call backend API
-    const result = await analyzeWithBackend(sanitizedText, url, isWholePage);
+    // Transform backend response to frontend format
+    const transformed = transformBackendResponse(result);
     
     // Cache the result
-    await cacheAnalysis(result);
+    await cacheAnalysis(transformed);
     
-    // Send result to popup (if open)
-    notifyPopup({
-      type: 'analysis_result',
-      data: result
-    });
-    
-    return result;
+    return transformed;
     
   } catch (error) {
     console.error('Failed to analyze:', error);
-    
-    // Send error to popup
-    notifyPopup({
-      type: 'error',
-      error: error.message,
-      details: error.stack
-    });
-    
     throw error;
   }
 }
@@ -83,10 +74,11 @@ async function handleAnalysisRequest(message, sender) {
 // BACKEND API COMMUNICATION
 // ============================================
 
-async function analyzeWithBackend(text, url, isWholePage) {
+async function analyzeWithBackend(text, url) {
   const endpoint = `${BACKEND_URL}/analyze`;
   
   console.log(`Calling backend: ${endpoint}`);
+  console.log(`Text length: ${text.length} chars`);
   
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -95,8 +87,10 @@ async function analyzeWithBackend(text, url, isWholePage) {
     },
     body: JSON.stringify({
       text: text,
-      url: url,
-      isWholePage: isWholePage
+      mode: text.length > 10000 ? 'page' : 'selection',
+      return_snippets: true,
+      snippets_top_k: 3,
+      include_spacy_probs: true
     })
   });
   
@@ -106,16 +100,130 @@ async function analyzeWithBackend(text, url, isWholePage) {
   }
   
   const result = await response.json();
-  
-  // Add metadata
-  result.timestamp = Date.now();
-  result.analyzedText = text.substring(0, 200); // First 200 chars for reference
-  result.analyzedTextLength = text.length;
-  result.isWholePage = isWholePage;
-  
   console.log('Backend analysis complete:', result);
   
   return result;
+}
+
+// ============================================
+// TRANSFORM BACKEND RESPONSE TO FRONTEND FORMAT
+// ============================================
+
+function transformBackendResponse(backendResult) {
+  /**
+   * Backend returns:
+   * {
+   *   trust_score: 68.4,
+   *   risk_level: "Medium",
+   *   categories: {
+   *     "Third-Party Sharing/Selling": {
+   *       score: 0.32,
+   *       reason: "...",
+   *       heuristics: {...},
+   *       spacy_prob: 0.41
+   *     },
+   *     ...
+   *   },
+   *   evidence: {
+   *     "Third-Party Sharing/Selling": [
+   *       {text: "...", start: 1234, end: 1298, score: 0.82, matched: ["..."]}
+   *     ],
+   *     ...
+   *   },
+   *   weights: {...}
+   * }
+   * 
+   * Frontend expects:
+   * {
+   *   trustScore: 68.4,
+   *   riskLevel: "medium",
+   *   categories: [
+   *     {
+   *       name: "Third-Party Sharing/Selling",
+   *       score: 32,  // 0-100 scale
+   *       weight: 0.20,
+   *       reasons: ["..."],
+   *       evidence: [{text: "...", keywords: [...], highlighted: "..."}]
+   *     },
+   *     ...
+   *   ],
+   *   timestamp: Date.now(),
+   *   analyzedTextLength: 1234
+   * }
+   */
+  
+  const categories = [];
+  const categoryNames = [
+    'Data Collection',
+    'Third-Party Sharing/Selling',
+    'Purpose Limitation',
+    'User Control & Rights',
+    'Retention & Deletion',
+    'Security Practices',
+    'International Transfers & Jurisdiction',
+    'Children/Minors + Sensitive Data'
+  ];
+  
+  for (const catName of categoryNames) {
+    const backendCat = backendResult.categories?.[catName] || {};
+    const backendEvidence = backendResult.evidence?.[catName] || [];
+    
+    // Convert score from 0-1 to 0-100
+    const score = Math.round((backendCat.score || 0) * 100);
+    
+    // Extract reasons (from LLM reason + heuristic flags)
+    const reasons = [];
+    if (backendCat.reason) {
+      reasons.push(backendCat.reason);
+    }
+    if (backendCat.heuristics?.flags?.length > 0) {
+      reasons.push(...backendCat.heuristics.flags.map(f => `Detected: ${f}`));
+    }
+    
+    // Transform evidence with highlighted keywords
+    const evidence = backendEvidence.map(ev => ({
+      text: ev.text || '',
+      keywords: ev.matched || [],
+      highlighted: highlightKeywords(ev.text || '', ev.matched || [])
+    }));
+    
+    categories.push({
+      name: catName,
+      score: score,
+      weight: backendResult.weights?.[catName] || 0.10,
+      reasons: reasons.length > 0 ? reasons : ['No specific issues detected'],
+      evidence: evidence
+    });
+  }
+  
+  return {
+    trustScore: Math.round(backendResult.trust_score || 0),
+    riskLevel: (backendResult.risk_level || 'medium').toLowerCase(),
+    categories: categories,
+    timestamp: Date.now(),
+    analyzedTextLength: 0 // Backend doesn't return this, but we could calculate it
+  };
+}
+
+// ============================================
+// HELPER: HIGHLIGHT KEYWORDS IN TEXT
+// ============================================
+
+function highlightKeywords(text, keywords) {
+  if (!keywords || keywords.length === 0) return text;
+  
+  let highlighted = text;
+  keywords.forEach(keyword => {
+    // Case-insensitive replacement with <mark> tags
+    const regex = new RegExp(`(${escapeRegex(keyword)})`, 'gi');
+    highlighted = highlighted.replace(regex, '<mark>$1</mark>');
+  });
+  
+  return highlighted;
+}
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 // ============================================
@@ -160,54 +268,6 @@ async function clearCache() {
 }
 
 // ============================================
-// POPUP NOTIFICATION
-// ============================================
-
-function notifyPopup(message) {
-  // Send message to popup if it's open
-  chrome.runtime.sendMessage(message, (response) => {
-    if (chrome.runtime.lastError) {
-      // Popup is not open, that's okay
-      console.log('Popup not open, message not sent');
-    } else {
-      console.log('Popup notified:', message.type);
-    }
-  });
-}
-
-// ============================================
-// DATA SANITIZATION
-// ============================================
-
-function redactSensitiveInfo(text) {
-  // Redact email addresses
-  let sanitized = text.replace(
-    /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
-    '[EMAIL_REDACTED]'
-  );
-  
-  // Redact phone numbers (basic patterns)
-  sanitized = sanitized.replace(
-    /\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/g,
-    '[PHONE_REDACTED]'
-  );
-  
-  // Redact credit card numbers (basic pattern)
-  sanitized = sanitized.replace(
-    /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g,
-    '[CARD_REDACTED]'
-  );
-  
-  // Redact SSN patterns
-  sanitized = sanitized.replace(
-    /\b\d{3}-\d{2}-\d{4}\b/g,
-    '[SSN_REDACTED]'
-  );
-  
-  return sanitized;
-}
-
-// ============================================
 // HEALTH CHECK
 // ============================================
 
@@ -219,24 +279,25 @@ async function checkBackendHealth() {
     });
     
     if (response.ok) {
-      console.log('Backend is healthy ✓');
+      const data = await response.json();
+      console.log('Backend is healthy ✓', data);
       return true;
     } else {
-      console.warn('Backend health check failed');
+      console.warn('Backend health check failed:', response.status);
       return false;
     }
   } catch (error) {
     console.error('Cannot connect to backend:', error.message);
+    console.warn('⚠️ Make sure Flask server is running: python run.py');
     return false;
   }
 }
 
 // Check backend on startup
-checkBackendHealth().then(isHealthy => {
-  if (!isHealthy) {
-    console.warn('⚠️ Backend is not available. Make sure Flask/FastAPI server is running.');
-  }
-});
+checkBackendHealth();
+
+// Periodic health check (every 5 minutes)
+setInterval(checkBackendHealth, 5 * 60 * 1000);
 
 // ============================================
 // INSTALL/UPDATE HANDLERS
@@ -244,21 +305,12 @@ checkBackendHealth().then(isHealthy => {
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
-    console.log('Privacy Policy Analyzer installed!');
-    // Clear any existing cache
+    console.log('PrivaSee installed!');
     clearCache();
   } else if (details.reason === 'update') {
-    console.log('Privacy Policy Analyzer updated!');
+    console.log('PrivaSee updated!');
   }
 });
 
-// ============================================
-// EXTENSION ICON CLICK HANDLER
-// ============================================
+console.log('Service worker ready! Backend: ' + BACKEND_URL);
 
-chrome.action.onClicked.addListener((tab) => {
-  // This fires if no popup is defined, or as a fallback
-  console.log('Extension icon clicked on tab:', tab.id);
-});
-
-console.log('Service worker ready!');
