@@ -14,6 +14,16 @@ bp = Blueprint("api", __name__)
 
 MAX_TEXT_LEN = 120_000  # keep generous for whole-page mode
 
+from flask import current_app
+import logging, traceback
+
+@bp.errorhandler(Exception)
+def handle_uncaught(err):
+    logging.exception(err)  # prints full stack to the server console
+    if current_app.debug:
+        return jsonify({"error":"internal_error", "message": str(err)}), 500
+    return jsonify({"error":"internal_error", "message": "Unhandled server error."}), 500
+
 @bp.route("/health", methods=["GET"])
 def health():
     return jsonify({
