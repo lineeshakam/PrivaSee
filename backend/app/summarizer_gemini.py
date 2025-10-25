@@ -15,8 +15,9 @@ def _call_gemini(prompt: str, system: str = None, retries: int = 2) -> str:
     for attempt in range(retries + 1):
         try:
             if system:
-                resp = _model.generate_content([{"role":"system","parts":system},
-                                                {"role":"user","parts":prompt}])
+                # Combine system and user prompt for Gemini
+                full_prompt = f"{system}\n\n{prompt}"
+                resp = _model.generate_content(full_prompt)
             else:
                 resp = _model.generate_content(prompt)
             return resp.text or ""

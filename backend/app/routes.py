@@ -14,15 +14,20 @@ bp = Blueprint("api", __name__)
 
 MAX_TEXT_LEN = 120_000  # keep generous for whole-page mode
 
-from flask import current_app
+from flask import current_app, jsonify
 import logging, traceback
+
 
 @bp.errorhandler(Exception)
 def handle_uncaught(err):
-    logging.exception(err)  # prints full stack to the server console
+    logging.exception(err)  # full traceback in server console
     if current_app.debug:
-        return jsonify({"error":"internal_error", "message": str(err)}), 500
-    return jsonify({"error":"internal_error", "message": "Unhandled server error."}), 500
+        return jsonify({
+            "error": "internal_error",
+            "message": str(err),
+            "type": err.__class__.__name__
+        }), 500
+    return jsonify({"error":"internal_error","message":"Unhandled server error."}), 500
 
 @bp.route("/health", methods=["GET"])
 def health():
@@ -142,8 +147,3 @@ def analyze():
 @bp.errorhandler(BadRequest)
 def handle_bad_request(err):
     return jsonify({"error": "bad_request", "message": err.description}), 400
-
-@bp.errorhandler(Exception)
-def handle_uncaught(err):
-    # Avoid leaking stack traces to clients during demos; log server-side instead.
-    return jsonify({"error": "internal_error", "message": "Unhandled server error."}), 500
