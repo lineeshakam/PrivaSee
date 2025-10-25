@@ -1,10 +1,10 @@
-from app import create_app, config
-from flask import Flask
-from flask_cors import CORS
-from .routes import bp as api_bp
+from .app import create_app, config
 
-def create_app():
-    app = Flask(__name__)
-    CORS(app)  # lets the extension call localhost during dev
-    app.register_blueprint(api_bp)
-    return app
+app = create_app()
+
+if __name__ == "__main__":
+    app.run(
+        host=getattr(config, "HOST", "0.0.0.0"),
+        port=getattr(config, "PORT", 5000),
+        debug=getattr(config, "DEBUG", True),
+    )
