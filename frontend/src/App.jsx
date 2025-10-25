@@ -120,27 +120,59 @@ export default function App() {
   }
 
   // NO DATA STATE
-  if (status === "no-data" || !analysis) {
-    return (
-      <div className="app no-data-state">
-        <div className="empty-icon">🔍</div>
-        <h3>PrivaSee</h3>
-        <p>Analyze privacy policies with AI-powered trust scores</p>
-        <button onClick={analyze} className="analyze-button">
-          Analyze This Page
-        </button>
-        <div className="instructions">
-          <p><strong>How it works:</strong></p>
-          <ol>
-            <li>Navigate to a privacy policy page</li>
-            <li>Highlight specific text (optional)</li>
-            <li>Click "Analyze This Page"</li>
-          </ol>
-        </div>
-        <button onClick={useMockData} className="mock-button">Use Mock Data (Dev)</button>
+// NO DATA STATE
+if (status === "no-data" || !analysis) {
+  return (
+    <div className="app no-data-state" style={{ padding: '20px', minHeight: '400px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div className="empty-icon" style={{ fontSize: '48px' }}>🔍</div>
+      <h3 style={{ margin: '0' }}>PrivaSee</h3>
+      <p style={{ margin: '0', fontSize: '14px' }}>Analyze privacy policies with AI-powered trust scores</p>
+      
+      {/* BIG VISIBLE MOCK BUTTON */}
+      <button 
+        onClick={useMockData}
+        style={{
+          background: '#10b981',
+          color: 'white',
+          padding: '14px 24px',
+          border: 'none',
+          borderRadius: '8px',
+          fontSize: '16px',
+          fontWeight: 'bold',
+          cursor: 'pointer',
+          marginTop: '10px'
+        }}
+      >
+        ✨ Click Here - Load Demo Data
+      </button>
+
+      <button 
+        onClick={analyze}
+        style={{
+          background: '#4f46e5',
+          color: 'white',
+          padding: '12px 24px',
+          border: 'none',
+          borderRadius: '8px',
+          fontSize: '14px',
+          fontWeight: '600',
+          cursor: 'pointer'
+        }}
+      >
+        Analyze This Page
+      </button>
+      
+      <div className="instructions" style={{ marginTop: '16px', fontSize: '13px' }}>
+        <p style={{ fontWeight: 'bold', marginBottom: '8px' }}>How it works:</p>
+        <ol style={{ textAlign: 'left', paddingLeft: '20px', lineHeight: '1.6' }}>
+          <li>Navigate to a privacy policy page</li>
+          <li>Highlight specific text (optional)</li>
+          <li>Click "Analyze This Page"</li>
+        </ol>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   // RESULTS STATE
   return (
