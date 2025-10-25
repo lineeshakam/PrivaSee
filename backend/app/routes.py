@@ -25,7 +25,10 @@ def analyze():
     Request JSON schema:
       {
         "text": "string (required)",
-        "mode": "selection" | "page"  # optional, for logging/telemetry if you want
+        "mode": "selection" | "page",     # optional, for logging
+        "return_snippets": true|false,    # optional, default true (spaCy evidence lines)
+        "snippets_top_k": 3,              # optional, default 3
+        "include_spacy_probs": true|false # optional, default true (blend spaCy probs)
       }
 
     Response JSON schema (example):
@@ -36,10 +39,18 @@ def analyze():
           "Third-Party Sharing/Selling": {
             "score": 0.32,
             "reason": "Mentions sharing with partners; no opt-out link found.",
-            "heuristics": {"flags": ["share with third parties"], "deltas": -0.35}
+            "heuristics": {"delta": -0.35, "flags": ["share with third parties"]},
+            "spacy_prob": 0.41
           },
           ...
-        }
+        },
+        "evidence": {
+          "Third-Party Sharing/Selling": [
+            {"text": "...share with third parties...", "start": 1234, "end": 1298, "score": 0.82, "matched": ["share with third parties"]}
+          ],
+          ...
+        },
+        "weights": { "...": 0.10, ... }
       }
     """
     # Content-type guard
@@ -53,17 +64,45 @@ def analyze():
     if len(text) > MAX_TEXT_LEN:
         raise BadRequest(f"Text too long (>{MAX_TEXT_LEN} chars). Consider 'selection' mode.")
 
+    # Options
+    return_snippets = bool(payload.get("return_snippets", True))
+    snippets_top_k = int(payload.get("snippets_top_k", 3))
+    include_spacy_probs = bool(payload.get("include_spacy_probs", True))
+
     # 1) Fast regex heuristics (deterministic flags/bonuses/penalties)
-    heur = detect_flags(text)  # your function should return per-category info
+    heur = detect_flags(text)  # expected per-category dict with at least {"delta": float, "flags": [...]}
 
     # 2) Gemini semantic judgments (normalized category scores in [0,1] + short reasons)
-    llm = llm_summary(text)    # your function returns per-category {score, reason}
+    llm = llm_summary(text)    # expected per-category: {"score": float, "reason": str}
 
-    # 3) Combine with weights into a transparent Trust Score
-    result = compute_score(heur, llm)  # returns final JSON-serializable dict
+    # 3) spaCy signals
+    spacy_probs = {}
+    evidence = {}
 
-    # Optional: include the configured weights once for transparency
+    if include_spacy_probs:
+        # Optional numeric per-category probabilities in [0,1] (used by scoring blend)
+        try:
+            from .nlp_spacy import spacy_scores
+            spacy_probs = spacy_scores(text) or {}
+        except Exception:
+            spacy_probs = {}
+
+    if return_snippets:
+        # Sentence-level evidence lines per category (top-K)
+        try:
+            from .nlp_spacy import spacy_extract_category_lines
+            evidence = spacy_extract_category_lines(text, top_k=snippets_top_k) or {}
+        except Exception:
+            evidence = {}
+
+    # 4) Combine with weights into a transparent Trust Score (blend LLM + heuristics + spaCy)
+    #    compute_score should gracefully handle missing spaCy by ignoring empty dicts.
+    result = compute_score(heuristics=heur, llm=llm, spacy=spacy_probs)  # returns final JSON-serializable dict
+
+    # Attach weights and (optional) evidence for the UI
     result["weights"] = config.CATEGORY_WEIGHTS
+    if return_snippets:
+        result["evidence"] = evidence
 
     return jsonify(result), 200
 
