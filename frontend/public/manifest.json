@@ -1,0 +1,18 @@
+{
+    "manifest_version": 3,
+    "name": "PrivaSee (Hackathon)",
+    "version": "0.1.0",
+    "description": "Summarize & score privacy policies you highlight.",
+    "action": { "default_popup": "index.html", "default_title": "PrivaSee" },
+    "permissions": ["activeTab", "storage"],
+    "host_permissions": ["<all_urls>"],
+    "background": { "service_worker": "service-worker.js" },
+    "content_scripts": [
+      {
+        "matches": ["<all_urls>"],
+        "js": ["content.js"],
+        "run_at": "document_end"
+      }
+    ]
+  }
+  
