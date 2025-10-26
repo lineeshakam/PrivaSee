@@ -59,14 +59,24 @@ async function handleAnalysisRequest(message) {
   console.log(`Analyzing ${text.length} characters from ${url}...`);
   
   try {
+    // Get user preferences from chrome storage
+    let userPreferences = {};
+    await new Promise((resolve) => {
+      chrome.storage.local.get(['userPreferences'], (data) => {
+        userPreferences = data.userPreferences || {};
+        console.log('Loaded user preferences:', userPreferences);
+        resolve();
+      });
+    });
+
     let result;
     
     if (USE_MOCK_DATA) {
       // Use mock data for testing without backend
       result = await getMockAnalysis(text, url);
     } else {
-      // Call real backend
-      result = await analyzeWithBackend(text, url);
+      // Call real backend with user preferences
+      result = await analyzeWithBackend(text, url, userPreferences);
     }
     
     // Transform to frontend format
@@ -209,24 +219,35 @@ async function getMockAnalysis(text, url) {
 // BACKEND API COMMUNICATION (For when backend is ready)
 // ============================================
 
-async function analyzeWithBackend(text, url) {
+async function analyzeWithBackend(text, url, userPreferences = {}) {
   const endpoint = `${BACKEND_URL}/analyze`;
   
   console.log(`Calling backend: ${endpoint}`);
   console.log(`Text length: ${text.length} chars`);
+  console.log(`User preferences:`, userPreferences);
+  
+  const requestBody = {
+    text: text,
+    mode: text.length > 10000 ? 'page' : 'selection',
+    return_snippets: true,
+    snippets_top_k: 3,
+    include_spacy_probs: true
+  };
+  
+  // Only include preferences if they exist and are not empty
+  if (userPreferences && Object.keys(userPreferences).length > 0) {
+    requestBody.preferences = userPreferences;
+    console.log('Including user preferences in request:', userPreferences);
+  } else {
+    console.log('No user preferences to send');
+  }
   
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({
-      text: text,
-      mode: text.length > 10000 ? 'page' : 'selection',
-      return_snippets: true,
-      snippets_top_k: 3,
-      include_spacy_probs: true
-    })
+    body: JSON.stringify(requestBody)
   });
   
   if (!response.ok) {
