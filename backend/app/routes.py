@@ -8,7 +8,9 @@ from .scoring import compute_score             # expects compute_score(heur, llm
 from .preferences import validate_preferences, default_preferences, PREFERENCE_SCHEMA
 from .policy_conflicts import detect_conflicts
 from .nlp_spacy import spacy_extract_category_lines, spacy_scores
-
+from .summarizer_gemini import llm_summary_categories, llm_general_eval
+from .scoring import compute_score
+from . import config
 
 bp = Blueprint("api", __name__)
 
@@ -77,6 +79,7 @@ def analyze():
         raise BadRequest("Content-Type must be application/json")
 
     payload = request.get_json(silent=True) or {}
+    return_general = bool(payload.get("return_general", True))
     text = (payload.get("text") or "").strip()
     if not text:
         raise BadRequest("Field 'text' is required and must be non-empty.")
@@ -95,6 +98,9 @@ def analyze():
 
     # 2) Gemini semantic judgments (normalized category scores in [0,1] + short reasons)
     llm = llm_summary(text)    # expected per-category: {"score": float, "reason": str}
+
+    llm_cats = llm_summary_categories(text)           # per-category {score, reason}
+    llm_overview = llm_general_eval(text) if return_general else None
 
     # 3) spaCy signals
     spacy_probs = {}
@@ -115,7 +121,9 @@ def analyze():
             evidence = spacy_extract_category_lines(text, top_k=snippets_top_k) or {}
         except Exception:
             evidence = {}
-
+    llm_cats = llm_summary_categories(text)           # per-category {score, reason}
+    llm_overview = llm_general_eval(text) if return_general else None
+    
       # --- Detect conflicts with user preferences before scoring ---
     conflicts = detect_conflicts(prefs, categories={}, evidence=evidence)
     penalties = {}
@@ -127,7 +135,12 @@ def analyze():
     # 4) Combine with weights into a transparent Trust Score (blend LLM + heuristics + spaCy)
     #    compute_score should gracefully handle missing spaCy by ignoring empty dicts.
         # Compute with preference penalties
-    result = compute_score(heuristics=heur, llm=llm, spacy=spacy_probs, preference_penalties=penalties)
+    result = compute_score(
+        heuristics=heur,
+        llm=llm_cats,
+        spacy=spacy_probs,
+        preference_penalties=penalties
+    )
 
     # Re-run conflict detection now that categories have scores
     conflicts = detect_conflicts(prefs, categories=result["categories"], evidence=evidence)
@@ -139,7 +152,8 @@ def analyze():
     if return_snippets:
         result["evidence"] = evidence
     result["personalized"] = {"conflicts": conflicts, "penalties": penalties}
-
+    if return_general and llm_overview:
+        result["overview"] = llm_overview   # puts the general evaluation in the JSON
     return jsonify(result), 200
 
 
