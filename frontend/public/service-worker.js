@@ -3,8 +3,11 @@
  * Set USE_MOCK_DATA = true to test without backend
  */
 
-const BACKEND_URL = 'http://localhost:5000';
-const USE_MOCK_DATA = true; // ← Set to false when backend is ready
+//const BACKEND_URL = 'http://localhost:5000';
+//const USE_MOCK_DATA = true; // ← Set to false when backend is ready
+
+const BACKEND_URL = 'https://unplacatory-lashell-unproffered.ngrok-free.dev';
+const USE_MOCK_DATA = false;
 
 console.log('PrivaSee Service Worker: initialized');
 console.log(`Mode: ${USE_MOCK_DATA ? 'MOCK DATA (no backend needed)' : 'BACKEND API'}`);
