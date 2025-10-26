@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import TrustScore from "./components/TrustScore";
 import CategoryList from "./components/CategoryList";
 import LoadingSpinner from "./components/LoadingSpinner";
+import Preferences from "./components/Preferences";
 import { MESSAGE_TYPES, MOCK_ANALYSIS } from "./utils/messaging";
 import "./App.css";
 
@@ -9,8 +10,17 @@ export default function App() {
   const [status, setStatus] = useState("loading");
   const [analysis, setAnalysis] = useState(null);
   const [error, setError] = useState(null);
+  const [showPreferences, setShowPreferences] = useState(false);
+  const [userPreferences, setUserPreferences] = useState(null);
 
   useEffect(() => {
+    // Load user preferences
+    chrome.storage.local.get(['userPreferences'], (data) => {
+      if (data.userPreferences) {
+        setUserPreferences(data.userPreferences);
+      }
+    });
+
     // Try to load cached analysis
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.sendMessage({ type: 'GET_CACHED' }, (response) => {
@@ -120,66 +130,80 @@ export default function App() {
   }
 
   // NO DATA STATE
-// NO DATA STATE
-if (status === "no-data" || !analysis) {
-  return (
-    <div className="app no-data-state" style={{ padding: '20px', minHeight: '400px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div className="empty-icon" style={{ fontSize: '48px' }}>🔍</div>
-      <h3 style={{ margin: '0' }}>PrivaSee</h3>
-      <p style={{ margin: '0', fontSize: '14px' }}>Analyze privacy policies with AI-powered trust scores</p>
-      
-      {/* BIG VISIBLE MOCK BUTTON */}
-      <button 
-        onClick={useMockData}
-        style={{
-          background: '#10b981',
-          color: 'white',
-          padding: '14px 24px',
-          border: 'none',
-          borderRadius: '8px',
-          fontSize: '16px',
-          fontWeight: 'bold',
-          cursor: 'pointer',
-          marginTop: '10px'
-        }}
-      >
-        ✨ Click Here - Load Demo Data
-      </button>
+  if (status === "no-data" || !analysis) {
+    return (
+      <div className="app no-data-state" style={{ padding: '20px', minHeight: '400px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className="empty-icon" style={{ fontSize: '48px' }}>🔍</div>
+        <h3 style={{ margin: '0' }}>PrivaSee</h3>
+        <p style={{ margin: '0', fontSize: '14px' }}>Analyze privacy policies with AI-powered trust scores</p>
+        
+        {/* BIG VISIBLE MOCK BUTTON */}
+        <button 
+          onClick={useMockData}
+          style={{
+            background: '#10b981',
+            color: 'white',
+            padding: '14px 24px',
+            border: 'none',
+            borderRadius: '8px',
+            fontSize: '16px',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            marginTop: '10px'
+          }}
+        >
+          ✨ Click Here - Load Demo Data
+        </button>
 
-      <button 
-        onClick={analyze}
-        style={{
-          background: '#4f46e5',
-          color: 'white',
-          padding: '12px 24px',
-          border: 'none',
-          borderRadius: '8px',
-          fontSize: '14px',
-          fontWeight: '600',
-          cursor: 'pointer'
-        }}
-      >
-        Analyze This Page
-      </button>
-      
-      <div className="instructions" style={{ marginTop: '16px', fontSize: '13px' }}>
-        <p style={{ fontWeight: 'bold', marginBottom: '8px' }}>How it works:</p>
-        <ol style={{ textAlign: 'left', paddingLeft: '20px', lineHeight: '1.6' }}>
-          <li>Navigate to a privacy policy page</li>
-          <li>Highlight specific text (optional)</li>
-          <li>Click "Analyze This Page"</li>
-        </ol>
+        <button 
+          onClick={analyze}
+          style={{
+            background: '#4f46e5',
+            color: 'white',
+            padding: '12px 24px',
+            border: 'none',
+            borderRadius: '8px',
+            fontSize: '14px',
+            fontWeight: '600',
+            cursor: 'pointer'
+          }}
+        >
+          Analyze This Page
+        </button>
+        
+        <div className="instructions" style={{ marginTop: '16px', fontSize: '13px' }}>
+          <p style={{ fontWeight: 'bold', marginBottom: '8px' }}>How it works:</p>
+          <ol style={{ textAlign: 'left', paddingLeft: '20px', lineHeight: '1.6' }}>
+            <li>Navigate to a privacy policy page</li>
+            <li>Highlight specific text (optional)</li>
+            <li>Click "Analyze This Page"</li>
+          </ol>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
   // RESULTS STATE
   return (
     <div className="app">
       <header className="app-header">
         <h1>PrivaSee Analysis</h1>
-        <button onClick={analyze} className="reanalyze-button">↻</button>
+        <div className="header-actions">
+          <button 
+            onClick={() => setShowPreferences(true)} 
+            className="preferences-button" 
+            title="Privacy Preferences"
+          >
+            ⚙️
+          </button>
+          <button 
+            onClick={analyze} 
+            className="reanalyze-button" 
+            title="Re-analyze"
+          >
+            ↻
+          </button>
+        </div>
       </header>
 
       <TrustScore score={analysis.trustScore} riskLevel={analysis.riskLevel} />
@@ -193,6 +217,17 @@ if (status === "no-data" || !analysis) {
           Analyzed: {new Date(analysis.timestamp).toLocaleTimeString()}
         </p>
       </footer>
+
+      {/* PREFERENCES MODAL */}
+      {showPreferences && (
+        <Preferences 
+          onClose={() => setShowPreferences(false)}
+          onSave={(prefs) => {
+            setUserPreferences(prefs);
+            setShowPreferences(false);
+          }}
+        />
+      )}
     </div>
   );
 }
