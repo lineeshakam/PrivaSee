@@ -15,3 +15,23 @@ frontend/dist/
 .DS_Store
 .vscode/
 *.log
+
+# Python bytecode/cache
+__pycache__/
+*.py[cod]
+*.cpython-3*.pyc
+
+# (optional) virtualenvs
+.venv/
+venv/
+.env
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# OS/editor noise
+.DS_Store
+.vscode/
+*.log
